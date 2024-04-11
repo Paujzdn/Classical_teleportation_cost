@@ -1,0 +1,54 @@
+import numpy as np
+
+class SphericalPointsGenerator:
+    def __init__(self, dimensions=3):
+        self.dimensions = dimensions
+
+    def generate_uniform_points(self, num_points):
+        points = []
+        for _ in range(num_points):
+            u = np.random.uniform(0, 1)
+            v = np.random.uniform(0, 1)
+            phi = 2 * np.pi * u
+            theta = np.arccos(2 * v - 1)
+            x = np.sin(theta) * np.cos(phi)
+            y = np.sin(theta) * np.sin(phi)
+            z = np.cos(theta)
+            points.append([x, y, z])
+        return np.array(points)
+
+    @staticmethod
+    def generate_fibonacci_points(samples):
+        points = []
+        phi = np.pi * (3. - np.sqrt(5.))
+
+        for i in range(samples):
+            y = 1 - (i / float(samples - 1)) * 2
+            radius = np.sqrt(1 - y ** 2)
+            theta = phi * i
+            x = np.cos(theta) * radius
+            z = np.sin(theta) * radius
+            points.append([x, y, z])
+
+        return np.array(points)
+
+    @staticmethod
+    def generate_non_uniform_points(num_points, distribution_type='polar'):
+        phi = 2 * np.pi * np.random.rand(num_points)
+
+        if distribution_type == 'polar':
+            theta = np.arccos(1 - 2 * np.random.rand(num_points)) ** 2
+        elif distribution_type == 'equatorial':
+            theta = np.arccos(0 - np.clip(np.random.normal(0, 0.5, size=num_points), -1, 1))
+        elif distribution_type == 'side':
+            phi = 2 * np.pi * np.random.normal(0.5, 0.5, size=num_points)
+            phi = phi[(phi < 2 * np.pi) & (phi > 0)]
+            theta = np.arccos(1 - 2 * np.random.rand(len(phi)))
+        else:
+            raise ValueError("Invalid distribution type")
+
+        x = np.sin(theta) * np.cos(phi)
+        y = np.sin(theta) * np.sin(phi)
+        z = np.cos(theta)
+
+        return np.array([x, y, z]).T
