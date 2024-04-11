@@ -1,0 +1,109 @@
+import numpy as np
+import scipy.optimize as opt
+from Qubit import Qubit
+
+
+class PositiveOperatorValueMeasure:
+    def __init__(self, projectors, contributions):
+        self.contributions = contributions
+        self.projectors = projectors * contributions[:, np.newaxis, np.newaxis]
+        self.validate()
+
+    @classmethod
+    def generate(cls, qubits):
+        # Generate POVM based on input qubits
+        rank_one_projectors = [q.matrix() for q in qubits]
+        last_element = np.identity(2) - np.sum(rank_one_projectors, axis=0)
+        _, eigenvectors = np.linalg.eig(last_element)
+        q1, q2 = Qubit.from_eigenvectors(eigenvectors)
+        qubits.extend([q1, q2])
+
+        # Compute extremal POVMs directly
+        extremal_povms, contributions = cls.decompose_to_extremals(qubits)
+
+        return cls(extremal_povms, contributions)
+
+    @staticmethod
+    def decompose_to_extremals(qubits):
+        # Prepare LP problem for extremal POVMs
+        bloch_vectors = np.asarray([q.bloch() for q in qubits])
+        num_qubits = len(qubits)
+        constraints_matrix = np.vstack((np.ones((num_qubits,)), bloch_vectors.T))
+        bounds = [(0.01, 1)] * num_qubits
+
+        # Solve LP problem to find extremal points
+        lp_solution = opt.linprog(np.zeros(num_qubits), A_eq=constraints_matrix, b_eq=[2] + [0] * 3,
+                                  bounds=bounds, method='highs')
+        contributions, elements = lp_solution.x, np.asarray([q.matrix() for q in qubits])
+
+        return elements, contributions
+
+    def validate(self):
+        # Validate POVM elements
+        identity_check = np.allclose(np.identity(2), np.sum(self.projectors, axis=0))
+        positive_semidefinite_check = [np.all(np.linalg.eig(element)[0] >= -np.finfo(np.float32).eps)
+                                       for element in self.projectors]
+        if not identity_check or not np.all(positive_semidefinite_check):
+            raise ValueError('Invalid POVM elements')
+        print('Valid Set')
+
+    def get_element(self, index):
+        return self.projectors[index]
+
+    def compute_probabilities(self, qubit):
+        density_matrix = np.repeat(qubit.matrix()[np.newaxis, :, :], self.projectors.shape[0], axis=0)
+        return np.real(np.trace(np.matmul(self.projectors, density_matrix), axis1=1, axis2=2))
+
+    def get_size(self):
+        return self.projectors.shape[0]
+
+    def get_unitary_matrix(self):
+        n = self.get_size()
+        d = 2
+        unitary_matrix = np.zeros((n, n), dtype=np.complex_)
+
+        _, eigenvectors = np.linalg.eig(self.projectors)
+        eigenvectors = eigenvectors[np.where(_ != 0)]
+
+        unitary_matrix[:, :d] = eigenvectors / np.linalg.norm(eigenvectors, axis=0)
+        orthogonal_projectors = np.eye(n, dtype=np.complex_)
+        counter = 0
+
+        for b in np.eye(n, dtype=np.complex_):
+            w = np.matmul(orthogonal_projectors, b)
+            if not np.isclose(w, 0.0).all():
+                w /= np.linalg.norm(w)
+                unitary_matrix[:, counter + d] = w
+                orthogonal_projectors -= np.outer(w, w.conj())
+                counter += 1
+            if counter == (n - d):
+                break
+
+        if not np.allclose(np.matmul(unitary_matrix, unitary_matrix.conj().T), np.eye(n)):
+            raise ValueError('Unitary matrix is not valid')
+
+        return unitary_matrix
+
+
+def generate_povm(num_elements):
+    if num_elements <= 2:
+        raise ValueError('Number of POVM elements must be greater than two')
+
+    qubits = [Qubit() for _ in range(num_elements - 2)]
+    povm_instance = PositiveOperatorValueMeasure.generate(qubits)
+    return povm_instance
+
+
+def main():
+    num_elements = 6  # Change this to the desired number of POVM elements
+    povm_instance = generate_povm(num_elements)
+    print("Generated POVM with", num_elements, "elements.")
+
+    print("POVM Element Matrices:")
+    for idx in range(num_elements):
+        print("Element", idx + 1, "Matrix:")
+        print(povm_instance.get_element(idx))
+
+
+if __name__ == "__main__":
+    main()
